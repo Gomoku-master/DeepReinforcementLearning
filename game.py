@@ -96,13 +96,11 @@ class GameState():
 
 	def _allowedActions(self):
 		allowed = []
+		# 오목알이 없는 좌표 추가
 		for i in range(len(self.board)):
-			if i >= len(self.board) - 7:
-				if self.board[i]==0:
-					allowed.append(i)
-			else:
-				if self.board[i] == 0 and self.board[i+7] != 0:
-					allowed.append(i)
+			for j in range(len(self.board)):
+				allowed.append((i, j))
+		# 렌주룰에 따른 금수 위치 필터링 필요
 
 		return allowed
 
