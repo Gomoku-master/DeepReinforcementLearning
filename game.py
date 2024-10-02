@@ -130,11 +130,11 @@ class GameState():
 		return id
 
 	def _checkForEndGame(self):
-		if np.count_nonzero(self.board) == 42:
+		if not self.allowedActions:
 			return 1
 
-		for x,y,z,a in self.winners:
-			if (self.board[x] + self.board[y] + self.board[z] + self.board[a] == 4 * -self.playerTurn):
+		for x,y,z,a, b in self.winners:
+			if (self.board[x] + self.board[y] + self.board[z] + self.board[a] + self.board[b] == 5 * -self.playerTurn):
 				return 1
 		return 0
 
