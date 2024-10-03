@@ -9,7 +9,7 @@ class Game:
 		self.actionSpace = np.array([0]*225, dtype=np.int)
 		self.pieces = {'1':'X', '0': '-', '-1':'O'}
 		self.grid_shape = (15,15)
-		self.input_shape = (2,6,7)
+		self.input_shape = (2,15,15)
 		self.name = 'gomoku'
 		self.state_size = len(self.gameState.binary)
 		self.action_size = len(self.actionSpace)
@@ -133,7 +133,7 @@ class GameState():
 		if not self.allowedActions:
 			return 1
 
-		for x,y,z,a, b in self.winners:
+		for x,y,z,a,b in self.winners:
 			if (self.board[x] + self.board[y] + self.board[z] + self.board[a] + self.board[b] == 5 * -self.playerTurn):
 				return 1
 		return 0
@@ -142,8 +142,8 @@ class GameState():
 	def _getValue(self):
 		# This is the value of the state for the current player
 		# i.e. if the previous player played a winning move, you lose
-		for x,y,z,a in self.winners:
-			if (self.board[x] + self.board[y] + self.board[z] + self.board[a] == 4 * -self.playerTurn):
+		for x,y,z,a,b in self.winners:
+			if (self.board[x] + self.board[y] + self.board[z] + self.board[a] + self.board[b] == 5 * -self.playerTurn):
 				return (-1, -1, 1)
 		return (0, 0, 0)
 
@@ -174,6 +174,6 @@ class GameState():
 
 
 	def render(self, logger):
-		for r in range(6):
-			logger.info([self.pieces[str(x)] for x in self.board[7*r : (7*r + 7)]])
+		for r in range(15):
+			logger.info([self.pieces[str(x)] for x in self.board[15*r : (15*r + 15)]])
 		logger.info('--------------')
