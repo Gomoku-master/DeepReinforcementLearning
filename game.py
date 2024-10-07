@@ -5,8 +5,8 @@ class Game:
 
 	def __init__(self):		
 		self.currentPlayer = 1
-		self.gameState = GameState(np.array([0]*225, dtype=np.int), 1)
-		self.actionSpace = np.array([0]*225, dtype=np.int)
+		self.gameState = GameState(np.array([0]*225, dtype=int), 1)
+		self.actionSpace = np.array([0]*225, dtype=int)
 		self.pieces = {'1':'X', '0': '-', '-1':'O'}
 		self.grid_shape = (15,15)
 		self.input_shape = (2,15,15)
@@ -15,7 +15,7 @@ class Game:
 		self.action_size = len(self.actionSpace)
 
 	def reset(self):
-		self.gameState = GameState(np.array([0]*225, dtype=np.int), 1)
+		self.gameState = GameState(np.array([0]*225, dtype=int), 1)
 		self.currentPlayer = 1
 		return self.gameState
 
@@ -106,10 +106,10 @@ class GameState():
 
 	def _binary(self):
 
-		currentplayer_position = np.zeros(len(self.board), dtype=np.int)
+		currentplayer_position = np.zeros(len(self.board), dtype=int)
 		currentplayer_position[self.board==self.playerTurn] = 1
 
-		other_position = np.zeros(len(self.board), dtype=np.int)
+		other_position = np.zeros(len(self.board), dtype=int)
 		other_position[self.board==-self.playerTurn] = 1
 
 		position = np.append(currentplayer_position,other_position)
@@ -117,10 +117,10 @@ class GameState():
 		return (position)
 
 	def _convertStateToId(self):
-		player1_position = np.zeros(len(self.board), dtype=np.int)
+		player1_position = np.zeros(len(self.board), dtype=int)
 		player1_position[self.board==1] = 1
 
-		other_position = np.zeros(len(self.board), dtype=np.int)
+		other_position = np.zeros(len(self.board), dtype=int)
 		other_position[self.board==-1] = 1
 
 		position = np.append(player1_position,other_position)
