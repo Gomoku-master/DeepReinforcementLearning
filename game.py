@@ -162,3 +162,8 @@ class GameState():
 		for r in range(15):
 			logger.info([self.pieces[str(x)] for x in self.board[15*r : (15*r + 15)]])
 		logger.info('--------------')
+	
+	def printBoard(self):
+		for r in range(15):
+			print(*[self.pieces[str(x)] for x in self.board[15*r : (15*r + 15)]])
+		print('--------------')
