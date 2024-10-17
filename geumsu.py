@@ -1,5 +1,6 @@
 import numpy as np
-
+import sys
+sys.setrecursionlimit(100000)
 #####################################
 ######### 금수 판정용 함수들 #########
 #####################################
@@ -129,10 +130,15 @@ def is_three(board, position, dir):
       targets.append(-1)  # 장외라면 백돌로 판정
 
   for i in range(2, 6):  # 7칸에서, 각 연속된 4칸씩을 sliding window(총 4번)
-    if sum(targets[i:i+4]) == 3:  # 해당 4칸이 흑돌 3개 빈칸 1개라면
-      if targets[i-1] == 0 and targets[i+4] == 0:  # 4칸의 양 끝의 옆이 빈칸이라면
-        if targets[i-2] != 1 and targets[i+5] != 1:  # 거기서 한 칸 더 옆이 흑이 아니라면
+    ix , iy = x + (i-5)*dx, y + (i-5)*dy  # sliding window의 첫 번쨰 위치의 좌표
+    if sum(targets[i:i+4]) == 3 and targets[i-1] == 0 and targets[i+4] == 0 and targets[i-2] != 1 and targets[i+5] != 1:  # 해당 4칸이 흑돌 3개 빈칸 1개에 양옆이 비어있고 6목 위험까지 없다면
+      blank_i = targets[i:i+4].index(0)  # 안둬진 곳을 찾아서
+      blank = ix + blank_i*dx, iy + blank_i*dy  # 좌표를 찾는다
+      if is_allowed(temp_board, blank[0]*rows + blank[1])[0]:
+        temp_board[blank[0]*rows + blank[1]] = 1  # 그곳에 뒀다고 친다
+        if is_allowed(temp_board, (ix - dx)*rows + iy - dy)[0] and is_allowed(temp_board, (ix+ 4*dx)*rows + iy + 4*dy)[0]: # 4칸의 양 끝의 옆이 금수가 아니라면
           return True  # 3 확정
+        temp_board[blank[0]*rows + blank[1]] = 0
   
   return False
 
@@ -144,11 +150,11 @@ def is_three(board, position, dir):
 # 금수 확인하고 싶은 board 만들기(_: 빈 칸, X: 흑돌, O: 백돌, P: 금수 확인 위치)
 your_board = np.array([
   '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', 
-  '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', 
-  '_', '_', '_', 'X', '_', '_', 'P', 'X', 'X', '_', 'O', '_', '_', '_', '_', 
+  '_', '_', '_', '_', '_', 'X', '_', '_', '_', '_', '_', '_', '_', '_', '_', 
   '_', '_', '_', '_', '_', '_', 'X', '_', '_', '_', '_', '_', '_', '_', '_', 
+  '_', '_', '_', '_', '_', 'X', 'X', '_', 'P', '_', '_', '_', '_', '_', '_', 
+  '_', '_', '_', '_', '_', '_', '_', 'X', 'X', '_', '_', '_', '_', '_', '_', 
   '_', '_', '_', '_', '_', '_', 'X', '_', '_', '_', '_', '_', '_', '_', '_', 
-  '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', 
   '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', 
   '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', 
   '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', 
@@ -194,19 +200,22 @@ for idx, val in enumerate(your_board):
   else:
     board[idx] = 0
 
-allowed, geumsu = True, ''
+def is_allowed(board, position):
+  allowed, geumsu = True, ''
 
-if is_five(board, position):  # (position에 놓음으로써)오목을 완성할 수 있다면
-  allowed = True
-elif is_five(board, position, overline=True):  # 6목 이상의 장목이 된다면, 즉 position의 흑돌을 포함하여 6개 이상의 연속된 흑돌이 완성된다면
-  allowed, geumsu = False, '장목'
-elif is_double_four(board, position):  # 44가 된다면, 즉 각기 다른 4가 2개 이상 완성된다면
-  allowed, geumsu = False, '44'
-elif is_double_three(board, position):  # 33이 된다면, 즉 각기 다른 열린 3이 2개 이상 완성된다면
-  allowed, geumsu = False, '33'
-else:
-  allowed = True
+  if is_five(board, position):  # (position에 놓음으로써)오목을 완성할 수 있다면
+    allowed = True
+  elif is_five(board, position, overline=True):  # 6목 이상의 장목이 된다면, 즉 position의 흑돌을 포함하여 6개 이상의 연속된 흑돌이 완성된다면
+    allowed, geumsu = False, '장목'
+  elif is_double_four(board, position):  # 44가 된다면, 즉 각기 다른 4가 2개 이상 완성된다면
+    allowed, geumsu = False, '44'
+  elif is_double_three(board, position):  # 33이 된다면, 즉 각기 다른 열린 3이 2개 이상 완성된다면
+    allowed, geumsu = False, '33'
+  else:
+    allowed = True
+  return allowed, geumsu
 
+allowed, geumsu = is_allowed(board, position)
 if allowed:
   print(f'해당 위치({row}, {col})는 금수가 아닙니다.')
 else:
