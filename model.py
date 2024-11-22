@@ -1,245 +1,248 @@
-# %matplotlib inline
-
+# 필요한 모듈 임포트
 import logging
-import config
 import numpy as np
-
 import matplotlib.pyplot as plt
 
-from keras.models import Sequential, load_model, Model
-from keras.layers import Input, Dense, Conv2D, Flatten, BatchNormalization, Activation, LeakyReLU, add
-from keras.optimizers import SGD
-from keras import regularizers
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
 
-from loss import softmax_cross_entropy_with_logits
+# 설정값 정의
+class config:
+    MOMENTUM = 0.9
 
-import loggers as lg
+# 디렉토리 설정 (필요에 따라 수정)
+run_folder = './'
+run_archive_folder = './'
 
-import keras.backend as K
+# 로깅 설정
+lg = logging.getLogger('model_logger')
+lg.setLevel(logging.INFO)
+# 핸들러 추가 (필요 시)
+if not lg.handlers:
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(message)s')
+    ch.setFormatter(formatter)
+    lg.addHandler(ch)
 
-from settings import run_folder, run_archive_folder
+# Gen_Model 클래스 정의
+class Gen_Model(nn.Module):
+    def __init__(self, reg_const, learning_rate, input_dim, output_dim):
+        super(Gen_Model, self).__init__()
+        self.reg_const = reg_const
+        self.learning_rate = learning_rate
+        self.input_dim = input_dim  # (채널 수, 높이, 너비)
+        self.output_dim = output_dim
+        self.optimizer = None  # 모델 정의 후에 설정됩니다.
 
-class Gen_Model():
-	def __init__(self, reg_const, learning_rate, input_dim, output_dim):
-		self.reg_const = reg_const
-		self.learning_rate = learning_rate
-		self.input_dim = input_dim
-		self.output_dim = output_dim
+    def predict(self, x):
+        self.eval()
+        with torch.no_grad():
+            v, p = self.forward(x)
+        return v, p
 
-	def predict(self, x):
-		return self.model.predict(x)
+    def fit(self, states, targets, epochs, verbose, validation_split, batch_size):
+        self.train()
+        dataset = torch.utils.data.TensorDataset(states, targets)
+        val_size = int(len(dataset) * validation_split)
+        train_size = len(dataset) - val_size
 
-	def fit(self, states, targets, epochs, verbose, validation_split, batch_size):
-		return self.model.fit(states, targets, epochs=epochs, verbose=verbose, validation_split = validation_split, batch_size = batch_size)
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-	def write(self, game, version):
-		self.model.save(run_folder + 'models/version' + "{0:0>4}".format(version) + '.h5')
+        criterion_value = nn.MSELoss()
+        criterion_policy = nn.CrossEntropyLoss()
 
-	def read(self, game, run_number, version):
-		return load_model( run_archive_folder + game + '/run' + str(run_number).zfill(4) + "/models/version" + "{0:0>4}".format(version) + '.h5', custom_objects={'softmax_cross_entropy_with_logits': softmax_cross_entropy_with_logits})
+        for epoch in range(epochs):
+            total_loss = 0
+            for batch_states, batch_targets in train_loader:
+                self.optimizer.zero_grad()
+                v_pred, p_pred = self.forward(batch_states)
 
-	def printWeightAverages(self):
-		layers = self.model.layers
-		for i, l in enumerate(layers):
-			try:
-				x = l.get_weights()[0]
-				lg.logger_model.info('WEIGHT LAYER %d: ABSAV = %f, SD =%f, ABSMAX =%f, ABSMIN =%f', i, np.mean(np.abs(x)), np.std(x), np.max(np.abs(x)), np.min(np.abs(x)))
-			except:
-				pass
-		lg.logger_model.info('------------------')
-		for i, l in enumerate(layers):
-			try:
-				x = l.get_weights()[1]
-				lg.logger_model.info('BIAS LAYER %d: ABSAV = %f, SD =%f, ABSMAX =%f, ABSMIN =%f', i, np.mean(np.abs(x)), np.std(x), np.max(np.abs(x)), np.min(np.abs(x)))
-			except:
-				pass
-		lg.logger_model.info('******************')
+                v_target = batch_targets[:, 0].unsqueeze(1)  # Value 타깃
+                p_target = batch_targets[:, 1:]  # Policy 타깃 (원핫 인코딩)
 
+                loss_v = criterion_value(v_pred, v_target)
+                loss_p = criterion_policy(p_pred, p_target.argmax(dim=1))
 
-	def viewLayers(self):
-		layers = self.model.layers
-		for i, l in enumerate(layers):
-			x = l.get_weights()
-			print('LAYER ' + str(i))
+                loss = 0.5 * loss_v + 0.5 * loss_p
 
-			try:
-				weights = x[0]
-				s = weights.shape
+                loss.backward()
+                self.optimizer.step()
 
-				fig = plt.figure(figsize=(s[2], s[3]))  # width, height in inches
-				channel = 0
-				filter = 0
-				for i in range(s[2] * s[3]):
+                total_loss += loss.item()
 
-					sub = fig.add_subplot(s[3], s[2], i + 1)
-					sub.imshow(weights[:,:,channel,filter], cmap='coolwarm', clim=(-1, 1),aspect="auto")
-					channel = (channel + 1) % s[2]
-					filter = (filter + 1) % s[3]
+            if verbose:
+                avg_loss = total_loss / len(train_loader)
+                print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
 
-			except:
-	
-				try:
-					fig = plt.figure(figsize=(3, len(x)))  # width, height in inches
-					for i in range(len(x)):
-						sub = fig.add_subplot(len(x), 1, i + 1)
-						if i == 0:
-							clim = (0,2)
-						else:
-							clim = (0, 2)
-						sub.imshow([x[i]], cmap='coolwarm', clim=clim,aspect="auto")
-						
-					plt.show()
+    def write(self, game, version):
+        model_path = run_folder + 'models/version' + "{0:0>4}".format(version) + '.pt'
+        torch.save(self.state_dict(), model_path)
 
-				except:
-					try:
-						fig = plt.figure(figsize=(3, 3))  # width, height in inches
-						sub = fig.add_subplot(1, 1, 1)
-						sub.imshow(x[0], cmap='coolwarm', clim=(-1, 1),aspect="auto")
-						
-						plt.show()
+    def read(self, game, run_number, version):
+        model_path = run_archive_folder + game + '/run' + str(run_number).zfill(4) + "/models/version" + "{0:0>4}".format(version) + '.pt'
+        self.load_state_dict(torch.load(model_path))
 
-					except:
-						pass
+    def printWeightAverages(self):
+        for name, param in self.named_parameters():
+            if param.requires_grad:
+                weights = param.data.cpu().numpy()
+                lg.info('PARAMETER {}: ABSAV = {:.6f}, SD = {:.6f}, ABSMAX = {:.6f}, ABSMIN = {:.6f}'.format(
+                    name, np.mean(np.abs(weights)), np.std(weights), np.max(np.abs(weights)), np.min(np.abs(weights))
+                ))
+        lg.info('******************')
 
-			plt.show()
-				
-		lg.logger_model.info('------------------')
+    def viewLayers(self):
+        for name, param in self.named_parameters():
+            weights = param.data.cpu().numpy()
+            print('LAYER ' + name)
+            try:
+                s = weights.shape
+                if len(s) == 4:
+                    # Conv2d 가중치 시각화
+                    num_filters = s[0]
+                    num_channels = s[1]
+                    fig = plt.figure(figsize=(num_channels, num_filters))
+                    for i in range(num_filters):
+                        for j in range(num_channels):
+                            sub = fig.add_subplot(num_filters, num_channels, i * num_channels + j + 1)
+                            sub.imshow(weights[i, j, :, :], cmap='coolwarm', clim=(-1, 1), aspect="auto")
+                    plt.show()
+                elif len(s) == 2:
+                    # Linear 가중치 시각화
+                    fig = plt.figure(figsize=(3, 3))
+                    sub = fig.add_subplot(1, 1, 1)
+                    sub.imshow(weights, cmap='coolwarm', clim=(-1, 1), aspect="auto")
+                    plt.show()
+                else:
+                    pass
+            except Exception as e:
+                print(f"An error occurred while visualizing layer {name}: {e}")
+        lg.info('------------------')
 
-
+# Residual_CNN 클래스 정의
 class Residual_CNN(Gen_Model):
-	def __init__(self, reg_const, learning_rate, input_dim,  output_dim, hidden_layers):
-		Gen_Model.__init__(self, reg_const, learning_rate, input_dim, output_dim)
-		self.hidden_layers = hidden_layers
-		self.num_layers = len(hidden_layers)
-		self.model = self._build_model()
+    def __init__(self, reg_const, learning_rate, input_dim, output_dim, hidden_layers):
+        super(Residual_CNN, self).__init__(reg_const, learning_rate, input_dim, output_dim)
+        self.hidden_layers = hidden_layers
+        self.num_layers = len(hidden_layers)
+        self._build_model()
+        self.optimizer = optim.SGD(self.parameters(), lr=self.learning_rate, momentum=config.MOMENTUM, weight_decay=self.reg_const)
 
-	def residual_layer(self, input_block, filters, kernel_size):
+    def conv_layer(self, in_channels, out_channels, kernel_size):
+        layer = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                padding=kernel_size // 2,
+                bias=False
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU()
+        )
+        return layer
 
-		x = self.conv_layer(input_block, filters, kernel_size)
+    def residual_layer(self, channels, kernel_size):
+        conv1 = nn.Conv2d(
+            in_channels=channels,
+            out_channels=channels,
+            kernel_size=kernel_size,
+            padding=kernel_size // 2,
+            bias=False
+        )
+        bn1 = nn.BatchNorm2d(channels)
+        lrelu = nn.LeakyReLU()
+        conv2 = nn.Conv2d(
+            in_channels=channels,
+            out_channels=channels,
+            kernel_size=kernel_size,
+            padding=kernel_size // 2,
+            bias=False
+        )
+        bn2 = nn.BatchNorm2d(channels)
 
-		x = Conv2D(
-		filters = filters
-		, kernel_size = kernel_size
-		, data_format="channels_first"
-		, padding = 'same'
-		, use_bias=False
-		, activation='linear'
-		, kernel_regularizer = regularizers.l2(self.reg_const)
-		)(x)
+        return nn.ModuleDict({
+            'conv1': conv1,
+            'bn1': bn1,
+            'lrelu1': lrelu,
+            'conv2': conv2,
+            'bn2': bn2,
+        })
 
-		x = BatchNormalization(axis=1)(x)
+    def value_head(self, in_channels):
+        layer = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=1,
+                kernel_size=1,
+                bias=False
+            ),
+            nn.BatchNorm2d(1),
+            nn.LeakyReLU(),
+            nn.Flatten(),
+            nn.Linear(1 * self.input_dim[1] * self.input_dim[2], 20, bias=False),
+            nn.LeakyReLU(),
+            nn.Linear(20, 1, bias=False),
+            nn.Tanh()
+        )
+        return layer
 
-		x = add([input_block, x])
+    def policy_head(self, in_channels):
+        layer = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=2,
+                kernel_size=1,
+                bias=False
+            ),
+            nn.BatchNorm2d(2),
+            nn.LeakyReLU(),
+            nn.Flatten(),
+            nn.Linear(2 * self.input_dim[1] * self.input_dim[2], self.output_dim, bias=False)
+            # 활성화 함수는 손실 함수에서 적용
+        )
+        return layer
 
-		x = LeakyReLU()(x)
+    def _build_model(self):
+        self.layers = nn.ModuleList()
+        # 초기 Conv 레이어
+        self.layers.append(self.conv_layer(self.input_dim[0], self.hidden_layers[0]['filters'], self.hidden_layers[0]['kernel_size']))
 
-		return (x)
+        # Residual 레이어들
+        for h in self.hidden_layers[1:]:
+            self.layers.append(self.residual_layer(h['filters'], h['kernel_size']))
 
-	def conv_layer(self, x, filters, kernel_size):
+        # Value와 Policy 헤드
+        self.value_head_layer = self.value_head(self.hidden_layers[-1]['filters'])
+        self.policy_head_layer = self.policy_head(self.hidden_layers[-1]['filters'])
 
-		x = Conv2D(
-		filters = filters
-		, kernel_size = kernel_size
-		, data_format="channels_first"
-		, padding = 'same'
-		, use_bias=False
-		, activation='linear'
-		, kernel_regularizer = regularizers.l2(self.reg_const)
-		)(x)
+    def forward(self, x):
+        for layer in self.layers:
+            if isinstance(layer, nn.ModuleDict):
+                # Residual Layer
+                residual = x
+                out = layer['conv1'](x)
+                out = layer['bn1'](out)
+                out = layer['lrelu1'](out)
+                out = layer['conv2'](out)
+                out = layer['bn2'](out)
+                x = F.leaky_relu(out + residual)
+            else:
+                x = layer(x)
 
-		x = BatchNormalization(axis=1)(x)
-		x = LeakyReLU()(x)
+        v = self.value_head_layer(x)
+        p = self.policy_head_layer(x)
 
-		return (x)
+        return v, p
 
-	def value_head(self, x):
-
-		x = Conv2D(
-		filters = 1
-		, kernel_size = (1,1)
-		, data_format="channels_first"
-		, padding = 'same'
-		, use_bias=False
-		, activation='linear'
-		, kernel_regularizer = regularizers.l2(self.reg_const)
-		)(x)
-
-
-		x = BatchNormalization(axis=1)(x)
-		x = LeakyReLU()(x)
-
-		x = Flatten()(x)
-
-		x = Dense(
-			20
-			, use_bias=False
-			, activation='linear'
-			, kernel_regularizer=regularizers.l2(self.reg_const)
-			)(x)
-
-		x = LeakyReLU()(x)
-
-		x = Dense(
-			1
-			, use_bias=False
-			, activation='tanh'
-			, kernel_regularizer=regularizers.l2(self.reg_const)
-			, name = 'value_head'
-			)(x)
-
-
-
-		return (x)
-
-	def policy_head(self, x):
-
-		x = Conv2D(
-		filters = 2
-		, kernel_size = (1,1)
-		, data_format="channels_first"
-		, padding = 'same'
-		, use_bias=False
-		, activation='linear'
-		, kernel_regularizer = regularizers.l2(self.reg_const)
-		)(x)
-
-		x = BatchNormalization(axis=1)(x)
-		x = LeakyReLU()(x)
-
-		x = Flatten()(x)
-
-		x = Dense(
-			self.output_dim
-			, use_bias=False
-			, activation='linear'
-			, kernel_regularizer=regularizers.l2(self.reg_const)
-			, name = 'policy_head'
-			)(x)
-
-		return (x)
-
-	def _build_model(self):
-
-		main_input = Input(shape = self.input_dim, name = 'main_input')
-
-		x = self.conv_layer(main_input, self.hidden_layers[0]['filters'], self.hidden_layers[0]['kernel_size'])
-
-		if len(self.hidden_layers) > 1:
-			for h in self.hidden_layers[1:]:
-				x = self.residual_layer(x, h['filters'], h['kernel_size'])
-
-		vh = self.value_head(x)
-		ph = self.policy_head(x)
-
-		model = Model(inputs=[main_input], outputs=[vh, ph])
-		model.compile(loss={'value_head': 'mean_squared_error', 'policy_head': softmax_cross_entropy_with_logits},
-			optimizer=SGD(lr=self.learning_rate, momentum = config.MOMENTUM),	
-			loss_weights={'value_head': 0.5, 'policy_head': 0.5}	
-			)
-
-		return model
-
-	def convertToModelInput(self, state):
-		inputToModel =  state.binary #np.append(state.binary, [(state.playerTurn + 1)/2] * self.input_dim[1] * self.input_dim[2])
-		inputToModel = np.reshape(inputToModel, self.input_dim) 
-		return (inputToModel)
+    def convertToModelInput(self, state):
+        inputToModel = state.binary  # state.binary가 NumPy 배열이라고 가정
+        inputToModel = np.reshape(inputToModel, self.input_dim)
+        inputToModel = torch.tensor(inputToModel, dtype=torch.float32)
+        inputToModel = inputToModel.unsqueeze(0)  # 배치 차원 추가
+        return inputToModel
